@@ -1,0 +1,50 @@
+[
+  {
+    "type": "create_solid",
+    "keywords": ["cube", "box", "block", "rectangular", "base"],
+    "description": "Creates a rectangular box centered on XY plane",
+    "code": "result = cq.Workplane('XY').box(length, width, height)"
+  },
+  {
+    "type": "create_solid",
+    "keywords": ["cylinder", "rod", "pole", "shaft", "circular"],
+    "description": "Creates a cylinder standing up on the Z axis",
+    "code": "result = cq.Workplane('XY').circle(radius).extrude(height)"
+  },
+  {
+    "type": "create_solid",
+    "keywords": ["sphere", "ball", "orb"],
+    "description": "Creates a sphere",
+    "code": "result = cq.Workplane('XY').sphere(radius)"
+  },
+  {
+    "type": "create_solid",
+    "keywords": ["ring", "tube", "hollow cylinder", "pipe", "washer"],
+    "description": "Creates a hollow tube or ring",
+    "code": "result = cq.Workplane('XY').circle(outer_radius).circle(inner_radius).extrude(length)"
+  },
+  {
+    "type": "create_solid",
+    "keywords": ["cone"],
+    "description": "Creates a cone",
+    "code": "# Note: radius1 is bottom, radius2 is top (0 for sharp point)\nresult = cq.Workplane('XY').circle(radius1).workplane(offset=height).circle(radius2).loft(combine=True)"
+  },
+  {
+    "type": "add_hole",
+    "keywords": ["hole", "cut", "bore", "drill"],
+    "description": "Cuts a circular hole through the selected face (usually Top >Z)",
+    "code": "# Assumes 'result' is selected. Select face -> draw circle -> cut\nresult = result.faces('>Z').workplane().circle(hole_radius).cutThruAll()"
+  },
+  {
+    "type": "add_fillet",
+    "keywords": ["fillet", "round", "smooth edges"],
+    "description": "Rounds the edges of the shape",
+    "code": "result = result.edges().fillet(radius)"
+  },
+  {
+    "type": "add_chamfer",
+    "keywords": ["chamfer", "bevel", "angle edges"],
+    "description": "Bevels the edges of the shape",
+    "code": "result = result.edges().chamfer(length)"
+  }
+]

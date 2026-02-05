@@ -1,0 +1,51 @@
+# --- Python Standard ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Virtual Environment ---
+.venv/
+venv/
+ENV/
+env/
+
+# --- IDE Settings (VS Code) ---
+.vscode/
+*.code-workspace
+
+# --- Environment Variables (CRITICAL: Contains API Keys) ---
+.env
+
+# --- Project Specific Ignored Folders ---
+
+# 1. The Heavy Database
+repository/chroma_db/
+repository/design_patterns/
+
+
+# 2. Generated Outputs (Models, Renders, JSONs)
+outputs/
+metrics/
+
+# 3. Logs
+logs/
+*.log
+
+.DS_Store

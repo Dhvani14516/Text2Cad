@@ -1,0 +1,80 @@
+# UMACAD System Configuration
+# Project: Text2Cad
+
+system:
+  name: "UMACAD"
+  version: "1.0.0"
+  project_name: "Text2Cad"
+
+# API PROVIDERS
+openrouter_provider:
+  base_url: "https://openrouter.ai/api/v1"
+  api_key_env: "OPENAI_API_KEY"
+  max_tokens: 4096
+  temperature: 0.7
+
+# AGENT CONFIGURATION
+
+agents:
+  requirements_analyst:
+    model: "openai/gpt-4.1-mini"  
+    provider: "openrouter_provider"
+    max_clarification_rounds: 5
+    min_confidence_threshold: 0.85
+
+  project_manager:
+    model: "deepseek/deepseek-chat"
+    provider: "openrouter_provider"
+    max_plan_steps: 20
+    react_iterations: 10
+    enable_edr_lookup: true
+
+  design_architect:
+    model: "deepseek/deepseek-chat"
+    provider: "openrouter_provider"
+    temperature: 0.0
+    max_code_generation_attempts: 3
+    enable_syntax_check: true
+
+  quality_verifier:
+    model: "google/gemini-2.5-flash" 
+    provider: "openrouter_provider"
+    render_views: ["top", "front", "side", "isometric"]
+    verification_threshold: 0.8
+    max_verification_attempts: 3
+    skip_visual_verification: false
+
+# CAD CORE SETTINGS
+
+cadquery:
+  default_units: "mm"
+  tolerance: 0.01
+  render_resolution: 1024
+  export_formats: ["stl", "step"]
+
+edr: # Evolving Design Repository
+  storage_path: "./repository/chroma_db"
+  code_library_path: "./repository/code_library"
+  enable_vector_search: true
+  embedding_model: "default-all-minilm-l6-v2"
+  max_retrieved_patterns: 5
+
+# INFRASTRUCTURE (Paths, Logging, Workflow)
+
+output:
+  design_briefs_path: "./outputs/design_briefs"
+  plans_path: "./outputs/plans"
+  renders_path: "./outputs/renders"
+  models_path: "./outputs/models"
+  archive_successful_runs: false
+
+logging:
+  level: "INFO"
+  log_file: "./logs/umacad.log"
+  console_output: true
+  save_agent_conversations: true
+
+workflow:
+  enable_user_validation: true
+  auto_save_checkpoints: true
+  max_phase_retries: 3

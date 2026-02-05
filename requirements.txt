@@ -1,0 +1,37 @@
+# --- Core CAD & Geometry ---
+cadquery>=2.4.0
+cadquery-ocp>=7.7.0
+ezdxf>=1.1.0        
+scipy>=1.10.0       # Required for some complex solver operations
+
+# --- Vision & AI ---
+openai>=1.0.0       
+anthropic>=0.8.0    
+pillow>=10.0.0      # Image processing (PIL)
+
+# --- Database & Memory ---
+chromadb>=0.4.0     # The "Long Term Memory" 
+sqlite-vec>=0.0.1
+
+# --- Web Interface (Crucial for app.py) ---
+Flask>=3.0.0
+
+# --- Visualization & Rendering ---
+vtk>=9.2.0
+pyvista>=0.43,<1.0  # High-quality 3D visualization
+cairosvg>=2.8.0     # SVG to PNG conversion
+matplotlib>=3.7.0
+numpy>=1.24.0
+
+# --- Utilities & Config ---
+python-dotenv>=1.0.0
+pydantic>=2.0.0     # Data validation
+pyyaml>=6.0         # Config file reading
+requests>=2.31.0
+loguru>=0.7.0       # Logging
+
+# --- Testing & Dev ---
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0

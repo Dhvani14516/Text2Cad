@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text2CAD - AI Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div class="main-container">
+        <h1>TEXT TO CAD DESIGN</h1>
+        <h3>TYPE AN IDEA AND WATCH THE AI BUILD IT !!</h3>
+
+        <div class="input-section" id="inputSection">
+            <textarea id="promptInput" placeholder="e.g. A solid cylinder with 10mm radius..."></textarea>
+            <button onclick="startGeneration()" class="generate-btn">BUILD IT</button>
+        </div>
+
+        <div id="loading" class="hidden">
+            <div class="loader"></div>
+            <p id="loadingText">Architecting your design...</p>
+        </div>
+
+        <div id="results" class="hidden">
+            <h2 id="designTitle">MODEL TITLE</h2>
+
+            <div id="viewer3d"></div>
+
+            <div class="btn-group">
+                <a id="downloadStl" href="#" class="download-btn">⬇ DOWNLOAD STL</a>
+                <a id="downloadStep" href="#" class="download-btn step">⬇ DOWNLOAD STEP</a>
+            </div>
+
+            <div class="feedback-section">
+                <p>Is this design correct? Help the AI learn!</p>
+                <div class="btn-group">
+                    <button class="feedback-btn" onclick="sendFeedback('upvote')">👍 Yes, Archive it</button>
+                    <button class="feedback-btn" onclick="sendFeedback('downvote')">👎 No, Discard</button>
+                </div>
+            </div>
+
+            <button class="reset-btn" onclick="resetApp()">BUILD ANOTHER</button>
+        </div>
+    </div>
+
+    <script type="module" src="{{ url_for('static', filename='js/logic.js') }}"></script>
+</body>
+</html>
