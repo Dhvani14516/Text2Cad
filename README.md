@@ -49,12 +49,7 @@ pip install -r requirements.txt
 
 ### 4. Configure API Keys
 
-Create a file named `.env` in the root directory and add your keys:
-
-```ini
-# .env file
-OPENAI_API_KEY="sk-or-v1-..."  # Your OpenRouter or OpenAI Key
-```
+Add your key in environment
 
 ### 5. Setup: Long-Term Memory (Crucial)
 
