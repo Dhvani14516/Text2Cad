@@ -49,7 +49,7 @@ pip install -r requirements.txt
 
 ### 4. Configure API Keys
 
-Add your key in environment
+Add your openrouter or open ai key in environment
 
 ### 5. Setup: Long-Term Memory (Crucial)
 
