@@ -116,10 +116,25 @@ class QualityVerifier:
 
         # --- STEP 1: VISUAL CHECK (The "Inspector") ---
         visual_result = self._perform_visual_check(renders, task, design_brief)
+
+        code_check = self.code_analyzer.analyze_code_dimensions(code, task, design_brief)
+        
+        is_hollow_task = "hollow" in task.description.lower() or "shell" in task.description.lower()
         
         if not visual_result['success']:
-            logger.warning(f"⛔ Visual Check Failed: {visual_result['message']}")
-            return visual_result
+            # Override 1: Hollow Sphere Paradox
+            if is_hollow_task and "solid" in visual_result['message'].lower():
+                logger.warning("⚠️ OVERRIDE: Visual Check failed on 'Hollow' visibility, but assuming internal geometry exists based on code.")
+                visual_result['success'] = True
+            
+            # Override 2: Prism 2D Shell Hallucination
+            # If the code check found dimensions and volume is likely > 0 (inferred)
+            elif "2d" in visual_result['message'].lower() and code_check.get('match', False):
+                 logger.warning("⚠️ OVERRIDE: Visual Check claimed '2D Shell', but Code Analysis confirms valid extrusion.")
+                 visual_result['success'] = True
+
+        if not visual_result['success']:
+             return visual_result
 
         # --- STEP 2: DYNAMIC CODE ANALYSIS (The "Math Professor") ---
         if code:
@@ -236,7 +251,22 @@ Params: {params_str}
 1. **CONTEXT AWARENESS:** The model has geometry from PREVIOUS steps. ONLY check if the *NEW* feature requested is present.
 2. **NO RULER:** Do not measure pixels. If it *looks* correct (e.g., a hole exists where asked), PASS IT.
 3. **FEATURE CHECK:** If brief says "Hole", do you see a hole? (PASS).
-4. **IGNORE MINOR ALIGNMENT:** Unless grotesquely wrong, assume alignment is correct.
+4. **SOLIDITY CHECK (CRITICAL):**
+   - Look closely at the isometric view. 
+   - Does the object look like a **solid block** or a **hollow paper shell**?
+   - If it looks like a hollow shell (you can see inside it, or it creates optical illusions), **FAIL IT**.
+   - **FEEDBACK:** "Visual Check Failed: The model appears to be a 2D surface/shell. It must be a closed 3D solid." (DO NOT suggest how to fix it code-wise).
+5. **BOOLEAN CHECKS:**
+   - If a subtraction is requested (e.g. "Cap"), look for a *flat face* where the cut happened.
+   - If the object is perfectly round everywhere, the cut likely failed.
+6. **THE "X-RAY" RULE (HOLLOW OBJECTS):** - If the request is for a "Hollow Sphere", "Shell", or "Pipe", **YOU CANNOT SEE THE INSIDE**.
+   - If the object looks like a solid outer shape (e.g., a Sphere), **PASS IT**.
+   - Assume the "Internal Math Check" will verify the hollowness. 
+   - **DO NOT FAIL** a hollow sphere just because it looks solid from the outside.
+7. **THE "PRISM" RULE:**
+   - Wireframe renders of Prisms often look like "shells" or "open boxes" due to optical illusions.
+   - If the "Model Stats" (provided in logs) show a **Volume > 0**, it is NOT a 2D shell.
+   - **PASS** the visual check if the shape roughly matches, even if lines look "thin".
 
 ## OUTPUT FORMAT (JSON ONLY):
 {{

@@ -206,9 +206,28 @@ class UMACADWorkflow:
     def _phase2_strategic_planning(self, design_brief) -> ConstructionPlan:
         self.current_phase = WorkflowPhase.STRATEGIC_PLANNING
         
-        construction_plan = self.project_manager.create_construction_plan(design_brief)
+        max_retries = 3
+        construction_plan = None
         
-        # Persist Plan
+        for attempt in range(max_retries):
+            logger.info(f"Planning Attempt {attempt + 1}/{max_retries}...")
+            
+            # Generate a temporary plan
+            temp_plan = self.project_manager.create_construction_plan(design_brief)
+            
+            # Validate: Check if plan exists and has tasks
+            if temp_plan and temp_plan.tasks and len(temp_plan.tasks) > 0:
+                construction_plan = temp_plan
+                break
+                
+            logger.warning(f"Plan attempt {attempt + 1} yielded 0 tasks. Retrying...")
+        
+        # --- FIX: Explicit Guard Clause for Pylance ---
+        # If the loop finishes and construction_plan is still None, we MUST crash here.
+        if construction_plan is None:
+            raise Exception("Project Manager failed to generate a valid task sequence after multiple retries.")
+
+        # Persist Plan (Safe now because we checked for None above)
         output_path = Path(self.config['output']['plans_path']) / f"{self.session_id}_plan.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         construction_plan.to_json_file(str(output_path))
@@ -217,7 +236,6 @@ class UMACADWorkflow:
         return construction_plan
 
     def _phase3_generation_verification(self, plan: ConstructionPlan) -> str:
-
         if self.design_brief is None:
             raise ValueError("Design Brief is missing. Cannot start Phase 3.")
         
@@ -260,14 +278,18 @@ class UMACADWorkflow:
                     last_code = code 
                     
                     # 2. Execute & Render
-                    # We execute the full history + new code to ensure context validity
                     full_execution_code = f"{code_history}\n{code}" if code_history else code
                     
-                    model, renders = self.cad_executor.execute_and_render(
-                        code=full_execution_code,
-                        views=self.config['agents']['quality_verifier']['render_views']
-                    )
-                    
+                    # Wrap execution to catch "no_result" and Ghost Models
+                    try:
+                        model, renders = self.cad_executor.execute_and_render(
+                            code=full_execution_code,
+                            views=self.config['agents']['quality_verifier']['render_views']
+                        )
+                    except Exception as exec_err:
+                        # Convert crash to a string so the debugger loop can read it next time
+                        raise ValueError(f"Code execution failed: {str(exec_err)}")
+
                     # 3. Verify
                     verification = self.quality_verifier.verify(
                         renders=renders,
@@ -286,6 +308,7 @@ class UMACADWorkflow:
                         
                 except Exception as e:
                     logger.error(f"  ✗ Execution Error: {e}")
+                    # This captures 'no_result', 'Null TopoDS', and 'Ghost Model' errors
                     last_error = str(e)
             
             if not task_success:
@@ -299,60 +322,76 @@ class UMACADWorkflow:
     def _phase4_user_validation(self, final_code: str, interactive: bool) -> Dict[str, Any]:
 
         if self.design_brief is None:
-            raise ValueError("Design Brief is missing. Cannot start Phase 3.")
-        
+            raise ValueError("Design Brief is missing. Cannot start Phase 4.")
+            
         self.current_phase = WorkflowPhase.USER_VALIDATION
-        
-        # 1. Final Render
+            
+        # 1. Final Render & Execution
         logger.info("Generating high-res final renders...")
+            
+        # We need the actual 3D model object to calculate volume
         final_model, final_renders = self.cad_executor.execute_and_render(
             code=final_code,
             views=self.config['agents']['quality_verifier']['render_views'],
             use_persistent_namespace=False
         )
-        
+            
+        # --- NEW: Calculate Volume for Benchmarking ---
+        final_volume = 0.0
+        try:
+            if final_model:
+                # Use .val() to get the TopoDS_Shape, then .Volume()
+                final_volume = final_model.val().Volume()
+        except Exception as e:
+            logger.warning(f"Could not calculate volume: {e}")
+
         # 2. Save Renders
         render_dir = Path(self.config['output']['renders_path']) / self.session_id
         render_dir.mkdir(parents=True, exist_ok=True)
         saved_render_paths = {}
-        
+            
         for view_name, image in final_renders.items():
             path = render_dir / f"{view_name}.png"
             image.save(str(path))
             saved_render_paths[view_name] = str(path)
-            
-        # 3. User Approval Interaction
+                
+        # 3. User Approval (Skip if non-interactive benchmark)
         user_approved = True
         if interactive and self.config['workflow']['enable_user_validation']:
             print(f"\n{'='*60}\nFINAL DESIGN REVIEW\n{'='*60}")
             print(f"Renders saved to: {render_dir}")
             while True:
                 response = input("Approve this design? (yes/no): ").lower()
-                if response in ['yes', 'y']: break
-                if response in ['no', 'n']: 
+                if response in ['yes', 'y']:
+                    break
+                if response in ['no', 'n']:
                     user_approved = False
                     break
-        
-        # 4. Export (Only if approved)
+
+        # 4. Export
         exported_files = {}
+
+        # For benchmarks, we typically want to return success even if we skip "User Approval" logic
+        # But if you want strict "User Approved" logic, keep 'if user_approved:'
+
+        model_dir = Path(self.config['output']['models_path']) / self.session_id
+        model_dir.mkdir(parents=True, exist_ok=True)
+            
+        # Export 3D files
+        exported_files = self.exporter.export_model(
+            model=final_model,
+            output_dir=str(model_dir),
+            filename=self.design_brief.design_title.replace(' ', '_'),
+            formats=self.config['cadquery']['export_formats']
+        )
+            
+        # Export Python Code
+        code_path = model_dir / "parametric_model.py"
+        with open(code_path, 'w', encoding='utf-8') as f:
+            f.write(final_code)
+        exported_files['code'] = str(code_path)
+            
         if user_approved:
-            model_dir = Path(self.config['output']['models_path']) / self.session_id
-            model_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Export 3D files (STL, STEP)
-            exported_files = self.exporter.export_model(
-                model=final_model,
-                output_dir=str(model_dir),
-                filename=self.design_brief.design_title.replace(' ', '_'),
-                formats=self.config['cadquery']['export_formats']
-            )
-            
-            # Export Python Code
-            code_path = model_dir / "parametric_model.py"
-            with open(code_path, 'w', encoding='utf-8') as f:
-                f.write(final_code)
-            exported_files['code'] = str(code_path)
-            
             return {
                 'success': True,
                 'session_id': self.session_id,
@@ -360,14 +399,16 @@ class UMACADWorkflow:
                 'construction_plan': self.construction_plan,
                 'final_code': final_code,
                 'renders': saved_render_paths,
-                'exported_files': exported_files
+                'exported_files': exported_files,
+                'volume': final_volume  # <--- CRITICAL FOR BENCHMARK
             }
-        
+            
         return {
             'success': False,
             'session_id': self.session_id,
             'message': 'User rejected the design'
         }
+
 
     # HELPERS
 

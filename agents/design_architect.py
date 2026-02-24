@@ -161,32 +161,46 @@ EXAMPLES:
         return code.strip()
 
     def _ensure_result_assignment(self, code: str) -> str:
-        """Guarantees the code ends by assigning a variable to 'result'."""
+        """
+        Guarantees the code ends by assigning the final CadQuery model to 'result'.
+        Handles:
+        - Last expression is a CQ object
+        - Last assignment to a temporary variable
+        - Multi-line constructions with temporary parts
+        """
         if "result =" in code or "result=" in code:
-            return code
-        
-        # Try AST parsing to find the last expression
+            return code  # Already assigned
+
         try:
             tree = ast.parse(code)
-            if tree.body:
-                last_node = tree.body[-1]
-                # If last line is just an expression (e.g. cq.Workplane...), assign it
-                if isinstance(last_node, ast.Expr):
-                    lines = code.strip().split('\n')
-                    lines[-1] = f"result = {lines[-1]}"
-                    return "\n".join(lines)
-                # If last line is an assignment to another var, copy it to result
-                if isinstance(last_node, ast.Assign):
-                    target = last_node.targets[0]
+            last_assignable = None
+
+            for node in reversed(tree.body):
+                # If it's an expression returning a CQ object, assign to result
+                if isinstance(node, ast.Expr):
+                    expr_line = (ast.get_source_segment(code, node) or "").strip()
+                    return code + f"\nresult = {expr_line}"
+                # If it's an assignment to a variable, track the last one
+                if isinstance(node, ast.Assign):
+                    target = node.targets[0]
                     if isinstance(target, ast.Name):
-                        return code + f"\nresult = {target.id}"
+                        last_assignable = target.id
+                        break
+
+            if last_assignable:
+                return code + f"\nresult = {last_assignable}"
+
         except Exception:
-            lines = code.strip().split('\n')
-            if lines and "cq." in lines[-1]:
-                 lines[-1] = f"result = {lines[-1]}"
-                 return "\n".join(lines)
-                 
-        return code
+            # Fallback: assign last line if it contains CadQuery calls
+            lines = code.strip().split("\n")
+            for i in reversed(range(len(lines))):
+                if "cq." in lines[i]:
+                    lines[i] = f"result = {lines[i]}"
+                    return "\n".join(lines)
+
+        # If all else fails, add a placeholder
+        return code + "\nresult = None  # WARNING: Could not auto-detect final model"
+
         
     def _validate_and_fix_syntax(self, code: str) -> str:
         try: 
@@ -200,24 +214,61 @@ EXAMPLES:
         return """You are a Python CadQuery Code Generator.
 
 CRITICAL INSTRUCTIONS:
-1. **FORMAT:** Start with `import cadquery as cq`. Output ONLY valid Python code.
-2. **STATE MANAGEMENT:** If `PREVIOUS CODE` exists, modify `result`. ALWAYS assign final output to `result`.
-3. **SELECTORS:** Use `>Z`, `<Z`, `|Z` selectors for fillets/chamfers. 
-4. **COORDINATES:** Primitives are `centered=(True,True,True)`. Use symmetric ranges (e.g., `range(-24, 32, 16)`).
-5. **UNIONS:** Never overwrite `result` when creating a new part. Create `part = ...` then `result = result.union(part)`.
-6. **PATTERNS:** Do NOT use `polarArray` on solids. Use a for-loop with `.rotate()` and `.union()`.
-7. **FEATURES:** Apply cuts/holes immediately to the main body. Do not leave floating objects.
-8. **ELLIPSOIDS & SCALING:** CadQuery `.scale()` is UNIFORM ONLY. To create an ellipsoid or non-uniform shape, use `ellipse(r1, r2).revolve()`. Do NOT use `sphere().scale(x,y,z)`.
+1. **FORMAT & STATE:** Start with `import cadquery as cq`. ALWAYS assign the final 3D solid to the variable `result`. NEVER overwrite `result` directly when adding parts; use `part = ...` then `result = result.union(part)`.
+2. **SOLIDS ONLY (.close() MANDATE):** All objects MUST be 3D SOLIDS. 
+   - When using `polyline()`, you MUST append `.close()` BEFORE `.extrude()`.
+   - BAD (Creates 2D Shell): `polyline(...).extrude(10)`
+   - GOOD (Creates Solid): `polyline(...).close().extrude(10)`
+   - *Applies heavily to Triangular Prisms and Wedges.*
+3. **CYLINDERS:** Use `.cylinder(height, radius)`. NEVER use the `diameter=` keyword (causes crashes). If given diameter, calculate `radius = D / 2`.
+4. **CONES & PYRAMIDS:** - **Pyramids:** Use `cq.Workplane("XY").rect(w, l).extrude(h, taper=angle)`. Ensure taper angle doesn't cause self-intersection.
+   - **Cones (Robust):** Do NOT use `extrude(taper=...)`. Use `cq.Workplane("XY").cone(bottom_radius, top_radius, height)`. Use a tiny top radius (e.g., 0.1) if 0.0 fails the kernel. 
+   - **Custom Lofts:** `cq.Workplane().circle(r1).workplane(offset=h).circle(r2).loft()`.
+5. **SPHERES, HEMISPHERES & SHELLS:**
+   - **Hemispheres/Caps:** DO NOT use `split()` (fragile). Create a sphere and `intersect()` it with a translated bounding box.
+   - **Hollow Shells:** Create `outer`, create `inner`, `cut()` inner from outer, then `union()` back to `result`.
+6. **TORUS (DONUT):** Use `cq.Workplane("XZ").moveTo(major_radius, 0).circle(minor_radius).revolve()`. `major` must be > `minor` to avoid self-intersection.
+7. **POLYGONS (HEXAGONS):** `.polygon(nSides, diameter)` uses the **circumscribed diameter**. If asked for Side Length (s), calculate `d = 2 * s`.
+8. **BOOLEAN SAFETY:** When cutting or intersecting, make the tool (Box/Cylinder) significantly LARGER than the target. Avoid exact edge-to-edge alignment to prevent kernel errors.
+9. **ORIENTATION & PLACEMENT:** - Primitives are `centered=(True,True,True)` by default.
+   - "Horizontal" = `cq.Workplane("YZ")`, "Vertical" = `cq.Workplane("XY")`.
+   - Do NOT rely on `.faces(">Y")` for curved surfaces. Create features at the origin, rotate, and `.translate()` them into place.
+10. **REGULAR TETRAHEDRON (Edge Length `a`):** Use method chaining. Math: `h = a * 0.8165`, `r = a * 0.57735`.
+11. **PATTERNS & FEATURES:** Do NOT use `polarArray` on solids; use a `for` loop with `.rotate()` and `.union()`. Apply cuts/holes immediately to the main body.
 """
 
     def _get_debugger_prompt(self) -> str:
-        return """You are a Python CadQuery Debugger. Fix the code based on the error.
+        return """You are a Python CadQuery Debugger. Fix the code based on the exact error.
 
-COMMON FIXES:
-1. **'polarArray' errors**: Replace with `for` loop + `.rotate()` + `.union()`.
-2. **'No pending wires'**: Add `.close()` before `.extrude()`.
-3. **'Workplane object must have... union!'**: Create a temp var for new parts, then union.
-4. **'Standard_Failure' (Fillet/Chamfer)**: Reduce radius or remove operation.
-5. **'Model has ZERO volume'**: Check extrusion values.
-6. **'AttributeError: scale'**: CadQuery `.scale()` only accepts one argument (uniform). Use `.ellipse(r1, r2).revolve()` instead.
+STRATEGIES:
+1. **'Visual Check Failed: 2D shell' OR 'No pending wires':** - CAUSE: You extruded an OPEN wire, resulting in a flat surface. 
+   - FIX: Add `.close()` to your sketch chain before extruding: `polyline(...).close().extrude(...)`.
+2. **'Model has ZERO volume' (Ghost Model):**
+   - CAUSE: Boolean operation failed (cut "air"), extrusion length was 0, or geometry self-intersected (e.g., Torus major < minor).
+   - FIX: Ensure cutting tools are vastly larger than the target and positioned correctly.
+3. **'BRep_API: command not done':**
+   - CAUSE: Geometric kernel failure. Common in revolves touching the axis or impossible fillets.
+   - FIX: For revolves, offset the profile slightly (e.g., `moveTo(radius + 0.001)`). For ellipsoids, switch to `sphere().each(lambda s: s.transformShape(m))`.
+4. **'ValueError: Null TopoDS_Shape' OR 'Hemisphere is full sphere':**
+   - CAUSE: `split()` or `cut()` failed because objects didn't intersect.
+   - FIX: Ensure cutting tools are large enough. For hemispheres, use `.intersect()` with a box representing the volume you want to KEEP.
+5. **'Cannot convert object type Wire to vector' OR 'AttributeError: sweepPath':**
+   - CAUSE: Calling `.close()` on a shape that is already invalid, or using non-existent methods.
+   - FIX: Ensure `.polyline()` takes a list of tuples. Use `.sweep()` with a valid path wire, or `.revolve()` for rings.
+6. **'gp_VectorWithNullMagnitude':**
+   - CAUSE: Lofting to a perfect geometric point (radius 0).
+   - FIX: Use a tiny radius (e.g., 0.1) for the top of the loft, or use the `cone()` primitive.
+7. **'AttributeError: scale' OR 'non-orthogonal GTrsf':**
+   - CAUSE: CadQuery `Matrix` and `Workplane` objects don't have a `.scale()` method.
+   - FIX: Use `m = Matrix([(x,0,0,0), (0,y,0,0), (0,0,z,0)])` and apply it with `.each(lambda s: s.transformGeometry(m))`.
+8. **'Workplane object must have... union!' OR 'Hemisphere is a separate object':**
+   - CAUSE: Method chaining broke or a part was orphaned.
+   - FIX: Assign the new part to a temp variable, then `result = result.union(temp)`.
+9. **'polarArray' errors:** Replace with a standard Python `for` loop, `.rotate()`, and `.union()`.
+10. **'AttributeError: sector':** CadQuery lacks `sector`. Revolve a `threePointArc` or cut a sphere in half.
+11. **'GeomAPI_ProjectPointOnSurf':** Cannot start a workplane on a curved surface. Start on a standard plane ("XY"), build the part, and `.translate()` it.
+12. **'Standard_Failure':** Fillet or chamfer failed. Reduce the radius or verify the selector (e.g., `>Z`) is hitting an actual sharp edge.
+13. **'No result variable found':** Ensure the absolute last line is exactly `result = ...`.
+
+GENERAL RULES: Ensure `import cadquery as cq` is present. If an approach fails repeatedly, TRY A DIFFERENT CONSTRUCTION METHOD (e.g., switch from Extrusion to CSG Booleans).
 """

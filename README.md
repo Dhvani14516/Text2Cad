@@ -17,7 +17,7 @@ This is an autonomous AI system that converts natural language descriptions into
 
 ---
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### 1. Clone the Repository
 
@@ -49,12 +49,7 @@ pip install -r requirements.txt
 
 ### 4. Configure API Keys
 
-Create a file named `.env` in the root directory and add your keys:
-
-```ini
-# .env file
-OPENAI_API_KEY="sk-or-v1-..."  # Your OpenRouter or OpenAI Key
-```
+Add your openrouter or open ai key in environment
 
 ### 5. Setup: Long-Term Memory (Crucial)
 
@@ -73,7 +68,7 @@ Due to GitHub file size limits, the system's "Brain" (Vector Database) is hosted
 
 ```bash
 # Basic Usage
-python main.py "A modular hex-shaped storage container"
+python main.py "A pipe"
 
 # Non-Interactive (Auto-accepts design)
 python main.py "Simple 50mm cube" --non-interactive

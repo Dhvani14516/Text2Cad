@@ -154,24 +154,29 @@ Generate the task list in JSON."""
             return {}
 
     def _parse_json_response(self, response: Optional[str]) -> Dict[str, Any]:
-        """Cleans LLM output (removes <think> tags and markdown). Handles None."""
-        if not response: return {}
-        
-        try:
-            # 1. Remove Chain-of-Thought tags (<think>...</think>)
-            cleaned = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
+            """Cleans LLM output and aggressively extracts JSON structures."""
+            if not response: return {}
             
-            # 2. Extract JSON from Markdown
-            if '```json' in cleaned:
-                cleaned = cleaned.split('```json')[1].split('```')[0]
-            elif '{' in cleaned:
-                # Find first { and last }
-                cleaned = cleaned[cleaned.find('{'):cleaned.rfind('}')+1]
+            try:
+                # 1. Remove Chain-of-Thought tags (<think>...</think>)
+                cleaned = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
                 
-            return json.loads(cleaned.strip())
-        except Exception as e:
-            logger.error(f"JSON Parse Error: {e} | Raw: {response[:50]}...")
-            return {}
+                # 2. Heuristic: Find the first '[' or '{' and the last ']' or '}'
+                # This handles cases where the LLM adds text before or after the JSON block
+                match = re.search(r'([\[\{].*[\]\}])', cleaned, re.DOTALL)
+                if match:
+                    json_str = match.group(1)
+                    data = json.loads(json_str.strip())
+                    
+                    # If the LLM returned a list directly [{}, {}], wrap it in a 'tasks' key
+                    if isinstance(data, list):
+                        return {"tasks": data}
+                    return data
+                    
+                return json.loads(cleaned.strip())
+            except Exception as e:
+                logger.error(f"JSON Parse Error: {e} | Raw Snippet: {response[:100]}...")
+                return {}
 
     # PROMPTS
     def _get_complexity_prompt(self) -> str:
@@ -187,19 +192,28 @@ CRITICAL RULES FOR TASKS:
 1. **ATOMIC SOLIDS ONLY:** Every task MUST generate a 3D SOLID. 
    - FORBIDDEN: "Create Sketch", "Draw Circle", "Define Rectangle". (CadQuery cannot pass 2D sketches between steps).
    - REQUIRED: "Create Cylinder", "Create Box", "Extrude Plate".
+   - Example: "Triangular Prism" -> Task 1: "Create a 3D triangular prism (Base 20, Height 17.32, Length 30) by drawing a closed triangle on the XY plane and extruding along Z."
 
 2. **MULTI-PART FUSION (NEW RULE):** - If the design has multiple separate parts (like a Snowman with 3 spheres), you MUST combine them.
    - OPTION A: Add a final task with type "boolean_union".
    - OPTION B (Preferred): In the description of Task 2 and 3, say "Create sphere AND UNION it with the previous shape.
    
-3. **AGGRESSIVE SIMPLICITY:** - A Cube, Cylinder, Washer, Plate, or simple Bracket MUST be **ONE SINGLE TASK**.
+3. **AGGRESSIVE SIMPLICITY:** - A Cube, Cylinder, Sphere, Cone, Pyramid, Washer, Plate, or simple Bracket MUST be **ONE SINGLE TASK**.
    - Example: "Washer" -> Task 1: "Create cylinder with center hole". (DONE).
-   - Do NOT split "Create Cylinder" and "Cut Hole" unless absolutely necessary.
+   - Example: "Cone" -> Task 1: "Create cone with radius 10 and height 20". (DONE).
+   - Do NOT split "Create Cylinder" and "Taper it" to make a cone.
 
 4. **DIMENSION LOYALTY:**
    - Use the EXACT dimensions below. Do not invent numbers.
 
 5. **NO "NICE TO HAVES":** - DO NOT add 'add_fillet' or 'add_chamfer' unless the user SPECIFICALLY asked for "rounded edges" or "chamfered corners".
    - A Cube should be 1 step. Not 4.
+
+6. **NO CURVED FACE SELECTION:** Never plan a task that selects a curved face (like the side of a cylinder or the surface of a sphere) to create a workplane.
+   - BAD PLAN: "Select the cylinder end face and create a hemisphere."
+   - GOOD PLAN: "Create a hemisphere at absolute coordinates [0, 0, 50] and UNION it."
+
+7. **EXPLICIT BOOLEAN FLOW:** If a task involves adding a part (like a cap to a cylinder), the description MUST say: "Create [Part] AND EXPLICITLY UNION it with the existing 'result' using `result = result.union(new_part)`." 
+   - Avoid vague terms like "add it to". Use "EXPLICITLY UNION".
 
 VALID TASK TYPES: [{valid_tasks_str}]"""
